@@ -1,8 +1,8 @@
 {
-    "name": "@savks/kernel",
+    "name": "@savks/js-kernel",
     "version": "1.0.0",
     "description": "JS Application Kernel",
-    "license": "ISC",
+    "license": "MIT",
     "author": "Savks",
     "main": "dist/index.js",
     "types": "dist/index.d.ts",
@@ -15,5 +15,10 @@
     },
     "volta": {
         "node": "17.9.0"
-    }
+    },
+    "files": [
+        "*.js",
+        "*.d.ts",
+        "*.js.map"
+    ]
 }
