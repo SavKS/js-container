@@ -1,0 +1,19 @@
+{
+    "name": "@savks/kernel",
+    "version": "1.0.0",
+    "description": "JS Application Kernel",
+    "license": "ISC",
+    "author": "Savks",
+    "main": "dist/index.js",
+    "types": "dist/index.d.ts",
+    "scripts": {
+        "build": "tsc",
+        "prepack": "yarn build"
+    },
+    "devDependencies": {
+        "typescript": "^4.4.3"
+    },
+    "volta": {
+        "node": "17.9.0"
+    }
+}
