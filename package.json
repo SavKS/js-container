@@ -1,7 +1,7 @@
 {
-    "name": "@savks/js-kernel",
-    "version": "1.0.3",
-    "description": "JS Application Kernel",
+    "name": "@savks/js-container",
+    "version": "1.0.0",
+    "description": "JS Application Container",
     "license": "MIT",
     "author": "Savks",
     "main": "dist/index.js",
