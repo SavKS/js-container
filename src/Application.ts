@@ -16,7 +16,7 @@ type Watcher<Services> = {
 };
 
 type Service<S> = {
-    register: ((app: Application<S>) => {})
+    register: (app: Application<S>) => void
 };
 
 class Application<Services = Record<string, any>> {
