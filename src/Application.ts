@@ -1,7 +1,12 @@
-type Concrete<Services> = ((app: Application<Services>) => Services[keyof Services]);
+import isPromise from 'is-promise';
+import { Services } from './Services';
 
-type Binding<Services> = {
-    concrete: Concrete<Services>,
+type MaybePromise<T> = T | Promise<T>;
+
+type Concrete<Name extends keyof Services, Services> = ((app: Application<Services>) => MaybePromise<Services[Name]>);
+
+type Binding<Name extends keyof S, S> = {
+    concrete: Concrete<Name, S>,
     shared: boolean
 };
 
@@ -19,12 +24,12 @@ type Service<S> = {
     register: (app: Application<S>) => void
 };
 
-class Application<Services = Record<string, any>> {
+class Application<S extends Record<string, any> = Services> {
     #locked;
-    #resolved: Record<keyof Services, Services[keyof Services]> = {} as Services;
-    #bindings: Record<keyof Services, Binding<Services>> = {} as Record<keyof Services, Binding<Services>>;
+    #shared: Partial<Record<keyof S, S[keyof S]>> = {};
+    #bindings: Partial<Record<keyof S, Binding<keyof S, S>>> = {};
     #watchers: {
-        when: Watcher<Services>[]
+        when: Watcher<S>[]
     } = {
         when: []
     };
@@ -45,51 +50,59 @@ class Application<Services = Record<string, any>> {
         this.#locked = true;
     }
 
-    bind(name: keyof Services, concrete: Concrete<Services>, shared = false) {
+    bind<Name extends keyof S>(
+        name: Name,
+        concrete: Concrete<Name, S>,
+        shared = false
+    ) {
         this.#bindings[ name ] = { concrete, shared };
 
         return this;
     }
 
-    singleton<ServiceName extends keyof Services>(
-        name: ServiceName,
-        concrete: (app: Application<Services>) => Services[ServiceName]
+    singleton<Name extends keyof S>(
+        name: Name,
+        concrete: (app: Application<S>) => MaybePromise<S[Name]>
     ) {
         return this.bind(name, concrete, true);
     }
 
-    make<ServiceName extends keyof Services>(name: ServiceName): Services[ServiceName] {
+    async make<Name extends keyof S>(name: Name): Promise<S[Name]> {
         if (!this.#bindings.hasOwnProperty(name)) {
             throw new Error(`Undeclared service "${ name }"`);
         }
 
-        let instance: Services[ServiceName];
+        let instance: S[Name];
         let wasRecentlyCreated = true;
 
-        if (this.#bindings[ name ].shared) {
-            if (!this.#resolved.hasOwnProperty(name)) {
-                this.#resolved[ name ] = this.#bindings[ name ].concrete(this);
+        if (this.#bindings[ name ]!.shared) {
+            if (!this.#shared.hasOwnProperty(name)) {
+                const concrete = this.#bindings[ name ]!.concrete(this);
+
+                this.#shared[ name ] = isPromise(concrete) ? await concrete : concrete;
             } else {
                 wasRecentlyCreated = false;
             }
 
-            instance = this.#resolved[ name ] as Services[ServiceName];
+            instance = this.#shared[ name ]!;
         } else {
-            instance = this.#bindings[ name ].concrete(this) as Services[ServiceName];
+            const concrete = this.#bindings[ name ]!.concrete(this);
+
+            instance = (isPromise(concrete) ? await concrete : concrete)!;
         }
 
         if (wasRecentlyCreated) {
             this.#watchers.when.forEach(watcher => {
                 if (watcher.deps.includes(name)) {
-                    let resolvedKeys = Object.keys(this.#resolved) as (keyof Services)[];
+                    let resolvedKeys = Object.keys(this.#shared) as (keyof S)[];
 
-                    const resolvedDeps = resolvedKeys.reduce<Services>((carry, serviceName) => {
+                    const resolvedDeps = resolvedKeys.reduce<S>((carry, serviceName) => {
                         if (watcher.deps.includes(serviceName)) {
-                            carry[ serviceName ] = this.#resolved[ serviceName ];
+                            carry[ serviceName ] = this.#shared[ serviceName ]!;
                         }
 
                         return carry;
-                    }, {} as Services);
+                    }, {} as S);
 
                     watcher.callback(resolvedDeps, this);
                 }
@@ -99,13 +112,13 @@ class Application<Services = Record<string, any>> {
         return instance;
     }
 
-    use(service: Service<Services>) {
+    use(service: Service<S>) {
         service.register(this);
     }
 
-    when<Deps extends (keyof Services)[]>(
+    when<Deps extends (keyof S)[]>(
         deps: Deps,
-        callback: (services: Pick<Services, Deps[number]>, app: Application<Services>) => void
+        callback: (services: Pick<S, Deps[number]>, app: Application<S>) => void
     ) {
         this.#watchers.when.push({
             deps,

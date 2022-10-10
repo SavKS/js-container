@@ -20,5 +20,8 @@
         "dist/*.js",
         "dist/*.d.ts",
         "dist/*.js.map"
-    ]
+    ],
+    "dependencies": {
+        "is-promise": "^4.0.0"
+    }
 }
