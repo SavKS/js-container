@@ -25,6 +25,7 @@ type Service<S> = {
 };
 
 class Application<S extends Record<string, any> = Services> {
+    #singletonResolving: Partial<Record<keyof S, Promise<S[keyof S]>>> = {};
     #locked;
     #shared: Partial<Record<keyof S, S[keyof S]>> = {};
     #bindings: Partial<Record<keyof S, Binding<keyof S, S>>> = {};
@@ -67,49 +68,28 @@ class Application<S extends Record<string, any> = Services> {
         return this.bind(name, concrete, true);
     }
 
-    async make<Name extends keyof S>(name: Name): Promise<S[Name]> {
+    make<Name extends keyof S>(name: Name): Promise<S[Name]> {
         if (!this.#bindings.hasOwnProperty(name)) {
             throw new Error(`Undeclared service "${ name }"`);
         }
 
-        let instance: S[Name];
-        let wasRecentlyCreated = true;
-
-        if (this.#bindings[ name ]!.shared) {
-            if (!this.#shared.hasOwnProperty(name)) {
-                const concrete = this.#bindings[ name ]!.concrete(this);
-
-                this.#shared[ name ] = isPromise(concrete) ? await concrete : concrete;
-            } else {
-                wasRecentlyCreated = false;
-            }
-
-            instance = this.#shared[ name ]!;
-        } else {
-            const concrete = this.#bindings[ name ]!.concrete(this);
-
-            instance = (isPromise(concrete) ? await concrete : concrete)!;
+        if (!this.#bindings[ name ]!.shared) {
+            return this.#makeInstance(name);
         }
 
-        if (wasRecentlyCreated) {
-            this.#watchers.when.forEach(watcher => {
-                if (watcher.deps.includes(name)) {
-                    let resolvedKeys = Object.keys(this.#shared) as (keyof S)[];
-
-                    const resolvedDeps = resolvedKeys.reduce<S>((carry, serviceName) => {
-                        if (watcher.deps.includes(serviceName)) {
-                            carry[ serviceName ] = this.#shared[ serviceName ]!;
-                        }
-
-                        return carry;
-                    }, {} as S);
-
-                    watcher.callback(resolvedDeps, this);
-                }
-            });
+        if (this.#shared.hasOwnProperty(name)) {
+            return new Promise<S[Name]>(
+                resolve => resolve(this.#shared[ name ]!)
+            );
         }
 
-        return instance;
+        if (this.#singletonResolving.hasOwnProperty(name)) {
+            return this.#singletonResolving[name]! as Promise<S[Name]>;
+        }
+
+        this.#singletonResolving[name] = this.#makeSingleton(name);
+
+        return this.#singletonResolving[name]! as Promise<S[Name]>;
     }
 
     use(service: Service<S>) {
@@ -124,6 +104,42 @@ class Application<S extends Record<string, any> = Services> {
             deps,
             callback
         });
+    }
+
+    #onCreated<Name extends keyof S>(name: Name) {
+        this.#watchers.when.forEach(watcher => {
+            if (watcher.deps.includes(name)) {
+                let resolvedKeys = Object.keys(this.#shared) as (keyof S)[];
+
+                const resolvedDeps = resolvedKeys.reduce<S>((carry, serviceName) => {
+                    if (watcher.deps.includes(serviceName)) {
+                        carry[ serviceName ] = this.#shared[ serviceName ]!;
+                    }
+
+                    return carry;
+                }, {} as S);
+
+                watcher.callback(resolvedDeps, this);
+            }
+        });
+    }
+
+    async #makeInstance<Name extends keyof S>(name: Name): Promise<S[Name]> {
+        const concrete = this.#bindings[ name ]!.concrete(this);
+
+        const instance = (isPromise(concrete) ? await concrete : concrete)!;
+
+        this.#onCreated(name);
+
+        return instance;
+    }
+
+    async #makeSingleton<Name extends keyof S>(name: Name): Promise<S[Name]> {
+        const instance = await this.#makeInstance(name);
+
+        this.#shared[ name ] = instance;
+
+        return instance;
     }
 };
 
