@@ -10,35 +10,41 @@ type Binding<Name extends keyof S, S> = {
     shared: boolean
 };
 
-type WatcherCallback<Services, Deps extends (keyof Services)[]> = (
+type ServiceWatcherCallback<Services, Deps extends (keyof Services)[]> = (
     services: Pick<Services, Deps[number]>,
     app: Application<Services>
 ) => void | Promise<void>;
 
-type Watcher<Services> = {
+type ServiceWatcher<Services> = {
     deps: (keyof Services)[],
-    callback: WatcherCallback<Services, (keyof Services)[]>
+    callback: ServiceWatcherCallback<Services, (keyof Services)[]>
 };
 
-type Service<S> = {
+type ServiceProvider<S> = {
     register?: (app: Application<S>) => void
     boot?: (app: Application<S>) => void
 };
 
 class Application<S extends Record<string, any> = Services> {
-    #singletonResolving: Partial<Record<keyof S, Promise<S[keyof S]>>> = {};
+    #sharedResolving: Partial<Record<keyof S, Promise<S[keyof S]>>> = {};
     #shared: Partial<Record<keyof S, S[keyof S]>> = {};
     #bindings: Partial<Record<keyof S, Binding<keyof S, S>>> = {};
 
-    #services: Service<S>[] = [];
+    #serviceProviders: ServiceProvider<S>[] = [];
 
-    #listeners: {
-        onRegistered: Watcher<S>[]
-        onResolved: Watcher<S>[]
+    #booted = false;
+
+    #watchers: {
+        onServiceBound: ServiceWatcher<S>[]
+        onServiceResolved: ServiceWatcher<S>[]
     } = {
-        onRegistered: [],
-        onResolved: [],
+        onServiceBound: [],
+        onServiceResolved: [],
     };
+
+    get booted() {
+        return this.#booted;
+    }
 
     bind<Name extends keyof S>(
         name: Name,
@@ -47,7 +53,40 @@ class Application<S extends Record<string, any> = Services> {
     ) {
         this.#bindings[ name ] = { concrete, shared };
 
+        this.#handleServiceBound(name);
+
         return this;
+    }
+
+    #handleServiceBound<Name extends keyof S>(name: Name) {
+        this.#processOnServiceBoundWatchers(name);
+    }
+
+    #processOnServiceBoundWatchers<Name extends keyof S>(name: Name) {
+        this.#watchers.onServiceBound.forEach(async watcher => {
+            if (!watcher.deps.includes(name)) {
+                return;
+            }
+
+            const isReady = watcher.deps.every(
+                dep => this.#bindings.hasOwnProperty(dep)
+            );
+
+            if (!isReady) {
+                return;
+            }
+
+            const resolvedDeps = Object.fromEntries(
+                await Promise.all(
+                    watcher.deps.map(async name => [
+                        name,
+                        await this.make(name)
+                    ])
+                )
+            ) as S;
+
+            watcher.callback(resolvedDeps, this);
+        });
     }
 
     singleton<Name extends keyof S>(
@@ -63,7 +102,7 @@ class Application<S extends Record<string, any> = Services> {
         }
 
         if (!this.#bindings[ name ]!.shared) {
-            return this.#makeInstance(name);
+            return this.#makeServiceInstance(name);
         }
 
         if (this.#shared.hasOwnProperty(name)) {
@@ -72,50 +111,119 @@ class Application<S extends Record<string, any> = Services> {
             );
         }
 
-        if (this.#singletonResolving.hasOwnProperty(name)) {
-            return this.#singletonResolving[ name ]! as Promise<S[Name]>;
+        if (this.#sharedResolving.hasOwnProperty(name)) {
+            return this.#sharedResolving[ name ]! as Promise<S[Name]>;
         }
 
-        this.#singletonResolving[ name ] = this.#makeSingleton(name);
+        this.#sharedResolving[ name ] = this.#makeSingleton(name);
 
-        return this.#singletonResolving[ name ]! as Promise<S[Name]>;
+        return this.#sharedResolving[ name ]! as Promise<S[Name]>;
     }
 
-    use(service: Service<S>) {
-        service.register?.(this);
+    use(serviceProvider: ServiceProvider<S>) {
+        serviceProvider.register?.(this);
+
+        if (this.booted) {
+            serviceProvider.boot?.(this);
+        }
+
+        this.#serviceProviders.push(serviceProvider);
     }
 
     boot() {
-
+        this.#serviceProviders.forEach(
+            serviceProvider => serviceProvider.boot?.(this)
+        )
     }
 
     afterResolving<Deps extends (keyof S)[]>(
         deps: Deps,
         callback: (services: Pick<S, Deps[number]>, app: Application<S>) => void
     ) {
-        this.#listeners.onResolved.push({ deps, callback });
+        this.#watchers.onServiceResolved.push({ deps, callback });
     }
+
+    waitFor<Deps extends (keyof S)[]>(deps: Deps): Promise<Pick<S, Deps[number]>>
 
     waitFor<Deps extends (keyof S)[]>(
         deps: Deps,
         callback: (services: Pick<S, Deps[number]>, app: Application<S>) => void
-    ) {
-        this.#listeners.onRegistered.push({ deps, callback });
+    ): void
+
+    waitFor<Deps extends (keyof S)[]>(
+        deps: Deps,
+        callback?: (services: Pick<S, Deps[number]>, app: Application<S>) => void
+    ): Promise<Pick<S, Deps[number]>> | void {
+        const isDepsReady = deps.every(
+            dep => this.#bindings.hasOwnProperty(dep)
+        );
+
+        if (isDepsReady) {
+            const services = (async () => {
+                const resolvedDeps = Object.fromEntries(
+                    await Promise.all(
+                        deps.map(async name => [
+                            name,
+                            await this.make(name)
+                        ])
+                    )
+                ) as S;
+
+                callback?.(resolvedDeps, this);
+
+                return resolvedDeps;
+            })();
+
+            if (!callback) {
+                return services;
+            }
+        } else {
+            if (callback) {
+                this.#watchers.onServiceBound.push({ deps, callback });
+            } else {
+                return new Promise(resolve => {
+                    this.#watchers.onServiceBound.push({
+                        deps,
+                        callback: services => {
+                            resolve(services);
+                        }
+                    });
+                });
+            }
+        }
     }
 
-    async #onCreated<Name extends keyof S>(name: Name) {
-        const waitFor = this.#listeners.onResolved.reduce((carry, watcher) => {
-            if (watcher.deps.includes(name)) {
-                let resolvedKeys = Object.keys(this.#shared) as (keyof S)[];
+    async #makeServiceInstance<Name extends keyof S>(name: Name): Promise<S[Name]> {
+        const concrete = this.#bindings[ name ]!.concrete(this);
 
-                const resolvedDeps = resolvedKeys.reduce<S>((carry, serviceName) => {
-                    if (watcher.deps.includes(serviceName)) {
-                        carry[ serviceName ] = this.#shared[ serviceName ]!;
-                    }
+        const instance = (isPromise(concrete) ? await concrete : concrete)!;
 
-                    return carry;
-                }, {} as S);
+        await this.#handleServiceResolved(name, instance);
 
+        return instance;
+    }
+
+    async #handleServiceResolved<Name extends keyof S>(name: Name, instance: S[Name]) {
+        await this.#processOnServiceResolvedWatchers(name, instance);
+    }
+
+    async #processOnServiceResolvedWatchers<Name extends keyof S>(name: Name, instance: S[Name]) {
+        const waitFor = this.#watchers.onServiceResolved.reduce<Promise<any>[]>((carry, watcher) => {
+            if (!watcher.deps.includes(name)) {
+                return carry;
+            }
+
+            const requiredDeps = watcher.deps.filter(dep => dep !== name);
+
+            const resolvedDeps = requiredDeps.reduce((carry, name) => {
+                if (this.#shared[ name ]) {
+                    carry[ name ] = this.#shared[ name ]!;
+                }
+
+                return carry;
+            }, { [ name ]: instance } as S);
+
+            if (Object.keys(resolvedDeps).length === requiredDeps.length) {
                 const result = watcher.callback(resolvedDeps, this);
 
                 if (isPromise(result)) {
@@ -123,26 +231,17 @@ class Application<S extends Record<string, any> = Services> {
                 }
             }
 
+
             return carry;
-        }, [] as Promise<any>[]);
+        }, []);
 
         if (waitFor.length) {
             await Promise.all(waitFor);
         }
     }
 
-    async #makeInstance<Name extends keyof S>(name: Name): Promise<S[Name]> {
-        const concrete = this.#bindings[ name ]!.concrete(this);
-
-        const instance = (isPromise(concrete) ? await concrete : concrete)!;
-
-        await this.#onCreated(name);
-
-        return instance;
-    }
-
     async #makeSingleton<Name extends keyof S>(name: Name): Promise<S[Name]> {
-        const instance = await this.#makeInstance(name);
+        const instance = await this.#makeServiceInstance(name);
 
         this.#shared[ name ] = instance;
 
