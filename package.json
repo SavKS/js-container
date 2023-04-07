@@ -6,22 +6,24 @@
     "author": "Savks",
     "main": "dist/index.js",
     "types": "dist/index.d.ts",
+    "type": "module",
     "scripts": {
         "build": "tsc",
         "prepack": "yarn build"
     },
     "devDependencies": {
-        "typescript": "^4.4.3"
+        "@tarik02/eslint-config-type-1": "^0.2.1",
+        "@tarik02/eslint-config-type-1-import": "^0.2.1",
+        "eslint": "^8.37.0",
+        "typescript": "^5.0.0"
     },
     "volta": {
-        "node": "17.9.0"
+        "node": "19.8.1"
     },
     "files": [
         "dist/*.js",
         "dist/*.d.ts",
         "dist/*.js.map"
     ],
-    "dependencies": {
-        "is-promise": "^4.0.0"
-    }
+    "dependencies": {}
 }

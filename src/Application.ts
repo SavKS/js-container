@@ -1,33 +1,30 @@
-import isPromise from 'is-promise';
-import { Services } from './Services';
-
 type MaybePromise<T> = T | Promise<T>;
 
-type Concrete<Name extends keyof Services, Services> = ((app: Application<Services>) => MaybePromise<Services[Name]>);
+type Concrete<Name extends keyof S, S> = ((app: Application<S>) => MaybePromise<S[Name]>);
 
 type Binding<Name extends keyof S, S> = {
     concrete: Concrete<Name, S>,
     shared: boolean
 };
 
-type ServiceWatcherCallback<Services, Deps extends (keyof Services)[]> = (
-    services: Pick<Services, Deps[number]>,
-    app: Application<Services>
+type ServiceWatcherCallback<S, Deps extends (keyof S)[]> = (
+    services: Pick<S, Deps[number]>,
+    app: Application<S>
 ) => void | Promise<void>;
 
-type ServiceWatcher<Services> = {
-    deps: (keyof Services)[],
-    callback: ServiceWatcherCallback<Services, (keyof Services)[]>
+type ServiceWatcher<S> = {
+    deps: (keyof S)[],
+    callback: ServiceWatcherCallback<S, (keyof S)[]>
 };
 
 type ServiceProvider<S> = {
-    register?: (app: Application<S>) => void
+    register?: (app: Application<S>) => void,
     boot?: (app: Application<S>) => void
 };
 
-class Application<S extends Record<string, any> = Services> {
+class Application<S> {
     #sharedResolving: Partial<Record<keyof S, Promise<S[keyof S]>>> = {};
-    #shared: Partial<Record<keyof S, S[keyof S]>> = {};
+    #shared: Partial<S> = {};
     #bindings: Partial<Record<keyof S, Binding<keyof S, S>>> = {};
 
     #serviceProviders: ServiceProvider<S>[] = [];
@@ -35,12 +32,9 @@ class Application<S extends Record<string, any> = Services> {
     #booted = false;
 
     #watchers: {
-        onServiceBound: ServiceWatcher<S>[]
+        onServiceBound: ServiceWatcher<S>[],
         onServiceResolved: ServiceWatcher<S>[]
-    } = {
-        onServiceBound: [],
-        onServiceResolved: [],
-    };
+    } = { onServiceBound: [], onServiceResolved: [] };
 
     get booted() {
         return this.#booted;
@@ -69,7 +63,7 @@ class Application<S extends Record<string, any> = Services> {
             }
 
             const isReady = watcher.deps.every(
-                dep => this.#bindings.hasOwnProperty(dep)
+                dep => Object.hasOwn(this.#bindings, dep)
             );
 
             if (!isReady) {
@@ -97,21 +91,21 @@ class Application<S extends Record<string, any> = Services> {
     }
 
     make<Name extends keyof S>(name: Name): Promise<S[Name]> {
-        if (!this.#bindings.hasOwnProperty(name)) {
-            throw new Error(`Undeclared service "${ name }"`);
+        if (!Object.hasOwn(this.#bindings, name)) {
+            throw new Error(`Undeclared service "${ typeof name === 'string' ? name : name.toString() }"`);
         }
 
         if (!this.#bindings[ name ]!.shared) {
             return this.#makeServiceInstance(name);
         }
 
-        if (this.#shared.hasOwnProperty(name)) {
+        if (Object.hasOwn(this.#shared, name)) {
             return new Promise<S[Name]>(
                 resolve => resolve(this.#shared[ name ]!)
             );
         }
 
-        if (this.#sharedResolving.hasOwnProperty(name)) {
+        if (Object.hasOwn(this.#sharedResolving, name)) {
             return this.#sharedResolving[ name ]! as Promise<S[Name]>;
         }
 
@@ -133,7 +127,7 @@ class Application<S extends Record<string, any> = Services> {
     boot() {
         this.#serviceProviders.forEach(
             serviceProvider => serviceProvider.boot?.(this)
-        )
+        );
     }
 
     afterResolving<Deps extends (keyof S)[]>(
@@ -143,19 +137,19 @@ class Application<S extends Record<string, any> = Services> {
         this.#watchers.onServiceResolved.push({ deps, callback });
     }
 
-    waitFor<Deps extends (keyof S)[]>(deps: Deps): Promise<Pick<S, Deps[number]>>
+    waitFor<Deps extends (keyof S)[]>(deps: Deps): Promise<Pick<S, Deps[number]>>;
 
     waitFor<Deps extends (keyof S)[]>(
         deps: Deps,
         callback: (services: Pick<S, Deps[number]>, app: Application<S>) => void
-    ): void
+    ): void;
 
     waitFor<Deps extends (keyof S)[]>(
         deps: Deps,
         callback?: (services: Pick<S, Deps[number]>, app: Application<S>) => void
     ): Promise<Pick<S, Deps[number]>> | void {
         const isDepsReady = deps.every(
-            dep => this.#bindings.hasOwnProperty(dep)
+            dep => Object.hasOwn(this.#bindings, dep)
         );
 
         if (isDepsReady) {
@@ -198,9 +192,9 @@ class Application<S extends Record<string, any> = Services> {
 
         const instance = (isPromise(concrete) ? await concrete : concrete)!;
 
-        await this.#handleServiceResolved(name, instance);
+        await this.#handleServiceResolved(name, instance as S[Name]);
 
-        return instance;
+        return instance as S[Name];
     }
 
     async #handleServiceResolved<Name extends keyof S>(name: Name, instance: S[Name]) {
@@ -221,7 +215,7 @@ class Application<S extends Record<string, any> = Services> {
                 }
 
                 return carry;
-            }, { [ name ]: instance } as S);
+            }, { [ name ]: instance } as any);
 
             if (Object.keys(resolvedDeps).length === requiredDeps.length) {
                 const result = watcher.callback(resolvedDeps, this);
@@ -230,7 +224,6 @@ class Application<S extends Record<string, any> = Services> {
                     carry.push(result);
                 }
             }
-
 
             return carry;
         }, []);
@@ -247,6 +240,13 @@ class Application<S extends Record<string, any> = Services> {
 
         return instance;
     }
-};
+}
 
 export default Application;
+
+function isPromise<T, S>(obj: PromiseLike<T> | S): obj is PromiseLike<T> {
+    return !!obj
+        && (typeof obj === 'object' || typeof obj === 'function')
+        && 'then' in obj
+        && typeof obj.then === 'function';
+}

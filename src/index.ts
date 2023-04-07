@@ -1,5 +1,3 @@
-import Application from './Application';
-
-export { Services } from './Services';
+import Application from './Application.js';
 
 export default Application;
