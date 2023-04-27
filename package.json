@@ -1,6 +1,6 @@
 {
     "name": "@savks/js-container",
-    "version": "3.0.0-beta.2",
+    "version": "3.0.0-beta.3",
     "description": "JS Application Container",
     "license": "MIT",
     "author": "Savks",
@@ -23,7 +23,10 @@
     "files": [
         "dist/*.js",
         "dist/*.d.ts",
-        "dist/*.js.map"
+        "dist/*.js.map",
+        "dist/sync/*.js",
+        "dist/sync/*.d.ts",
+        "dist/sync/*.js.map"
     ],
     "dependencies": {},
     "exports": {
