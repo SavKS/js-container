@@ -217,7 +217,7 @@ class Application<S> {
                 return carry;
             }, { [ name ]: instance } as any);
 
-            if (Object.keys(resolvedDeps).length === requiredDeps.length) {
+            if (Object.keys(resolvedDeps).length === requiredDeps.length + 1) {
                 const result = watcher.callback(resolvedDeps, this);
 
                 if (isPromise(result)) {
