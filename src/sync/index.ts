@@ -1,6 +1,6 @@
-import appFunction from './appFunction.js';
+import appFunction, { AppFunction } from './appFunction.js';
 import Application from './Application.js';
 
-export { appFunction };
+export { appFunction, AppFunction };
 
 export default Application;
