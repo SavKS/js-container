@@ -1,6 +1,6 @@
 {
     "name": "@savks/js-container",
-    "version": "3.0.0-beta.5",
+    "version": "3.0.0",
     "description": "JS Application Container",
     "license": "MIT",
     "author": "Savks",
@@ -9,16 +9,17 @@
     "type": "module",
     "scripts": {
         "build": "tsc",
+        "watch": "tsc --watch",
         "prepack": "yarn build"
     },
     "devDependencies": {
-        "@tarik02/eslint-config-type-1": "^0.2.1",
-        "@tarik02/eslint-config-type-1-import": "^0.2.1",
-        "eslint": "^8.37.0",
-        "typescript": "^5.0.0"
+        "@tarik02/eslint-config-type-1": "^0.2.3",
+        "@tarik02/eslint-config-type-1-import": "^0.2.3",
+        "eslint": "^8.53.0",
+        "typescript": "^5.2.2"
     },
     "volta": {
-        "node": "19.8.1"
+        "node": "20.9.0"
     },
     "files": [
         "dist/*.js",
@@ -28,7 +29,6 @@
         "dist/sync/*.d.ts",
         "dist/sync/*.js.map"
     ],
-    "dependencies": {},
     "exports": {
         ".": {
             "types": "./dist/index.d.ts",
@@ -38,5 +38,6 @@
             "types": "./dist/sync/index.d.ts",
             "default": "./dist/sync/index.js"
         }
-    }
+    },
+    "packageManager": "yarn@4.0.2"
 }

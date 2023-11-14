@@ -207,17 +207,17 @@ class Application<S> {
                 return carry;
             }
 
-            const requiredDeps = watcher.deps.filter(dep => dep !== name);
-
-            const resolvedDeps = requiredDeps.reduce((carry, name) => {
-                if (this.#shared[ name ]) {
-                    carry[ name ] = this.#shared[ name ]!;
+            const resolvedDeps = watcher.deps.reduce((carry, depName) => {
+                if (depName === name) {
+                    carry[ depName ] = instance;
+                } else if (this.#shared[ depName ]) {
+                    carry[ depName ] = this.#shared[ depName ]!;
                 }
 
                 return carry;
             }, { [ name ]: instance } as any);
 
-            if (Object.keys(resolvedDeps).length === requiredDeps.length + 1) {
+            if (Object.keys(resolvedDeps).length === watcher.deps.length + 1) {
                 const result = watcher.callback(resolvedDeps, this);
 
                 if (isPromise(result)) {
